@@ -1,11 +1,7 @@
 use std::path::Path;
 
 use failure::Error;
-use openssl::{
-    pkcs12::Pkcs12,
-    pkey::PKey,
-    x509::X509,
-};
+use openssl::{pkcs12::Pkcs12, pkey::PKey, x509::X509};
 
 use crate::config::apis::{AuthInfo, Cluster, Config, Context};
 
