@@ -1,12 +1,16 @@
-use std::collections::HashMap;
-use std::fs::File;
-use std::path::Path;
+use std::{
+    collections::HashMap,
+    fs::File,
+    path::Path,
+};
 
 use failure::Error;
 use serde_yaml;
 
-use config::utils;
-use oauth2;
+use crate::{
+    config::utils,
+    oauth2,
+};
 
 /// Config stores information to connect remote kubernetes cluster.
 #[derive(Clone, Debug, Serialize, Deserialize)]

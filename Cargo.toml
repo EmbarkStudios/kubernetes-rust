@@ -8,6 +8,7 @@ repository = "https://github.com/ynqa/kubernetes-rust"
 readme = "README.md"
 keywords = ["kubernetes"]
 categories = ["web-programming::http-client"]
+edition = "2018"
 
 [dependencies]
 base64 = "0.9.3"
