@@ -26,6 +26,11 @@ serde_yaml = "0.8.5"
 time = "0.1.42"
 url = "1.7.2"
 
+[dependencies.futures]
+version = "0.3.0-alpha.14"
+package = "futures-preview"
+features = ["compat"]
+
 [dev-dependencies]
 tempfile = "3.0.4"
 k8s-openapi = { git = "https://github.com/Arnavion/k8s-openapi-codegen", tag = "v0.4.0", features = ["v1_13"] }
