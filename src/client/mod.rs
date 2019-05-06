@@ -8,14 +8,14 @@ use serde::de::DeserializeOwned;
 use super::config::Configuration;
 
 /// APIClient requires `config::Configuration` includes client to connect with kubernetes cluster.
+#[derive(Clone)]
 pub struct APIClient {
     configuration: Arc<Configuration>,
 }
 
 impl APIClient {
     pub fn new(configuration: Configuration) -> Self {
-        let rc = Arc::new(configuration);
-        APIClient { configuration: rc }
+        APIClient { configuration: Arc::new(configuration) }
     }
 
     /// Returns kubernetes resources binded `Arnavion/k8s-openapi-codegen` APIs.
