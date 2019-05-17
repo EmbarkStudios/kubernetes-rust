@@ -42,7 +42,7 @@ impl APIClient {
     where
         T: DeserializeOwned,
     {
-        let res = await!(self.configuration.client(request))?;
+        let res = self.configuration.client(request).await?;
 
         let mut json_body = Vec::with_capacity(res.content_length().unwrap_or(1024) as usize);
 
@@ -51,7 +51,7 @@ impl APIClient {
         let fallback_err = res.error_for_status_ref().map(|_| ());
         let mut res_body = res.into_body().compat();
 
-        while let Some(chunk) = await!(res_body.next()) {
+        while let Some(chunk) = res_body.next().await {
             let chunk = chunk?;
             json_body.extend_from_slice(&chunk[..])
         }

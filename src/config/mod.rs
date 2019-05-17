@@ -31,7 +31,7 @@ impl Configuration {
         let client = self.client.clone();
 
         if let Some(ref auth_provider) = self.auth_provider {
-            let auth_value = await!(auth_provider.get_auth_header(&client))?;
+            let auth_value = auth_provider.get_auth_header(&client).await?;
 
             request.headers_mut()
                 .insert(
@@ -56,10 +56,10 @@ impl Configuration {
 
             let req = req_builder.headers(parts.headers).body(body);
                 
-            Ok(await!(req.send().compat())?)
+            Ok(req.send().compat().await?)
         };
 
-        await!(send)
+        send.await
     }
 }
 
@@ -96,16 +96,16 @@ impl AuthProvider {
                     } => {
                         let (parts, body) = request.into_parts();
 
-                        let response: Result<http::Response<_>, Error> = await!(async {
+                        let response: Result<http::Response<_>, Error> = async {
                             let req_builder = match parts.method {
                                 // Should only ever be POST...
                                 http::Method::POST => client.post(&format!("{}", parts.uri)),
                                 method => unreachable!("this...should not have happened: {}", method),
                             };
 
-                            let response = await!(req_builder.headers(parts.headers)
+                            let response = req_builder.headers(parts.headers)
                                 .body(body)
-                                .send().compat())?;
+                                .send().compat().await?;
 
                             // The oauth code only really cares about the status and body
                             // so the rest being empty is fine
@@ -114,7 +114,7 @@ impl AuthProvider {
                             let mut json_body = Vec::with_capacity(response.content_length().unwrap_or(1024) as usize);
                             let mut res_body = response.into_body().compat();
 
-                            while let Some(chunk) = await!(res_body.next()) {
+                            while let Some(chunk) = res_body.next().await {
                                 let chunk = chunk?;
                                 json_body.extend_from_slice(&chunk[..])
                             }
@@ -124,7 +124,7 @@ impl AuthProvider {
                                 .body(json_body)?;
 
                             Ok(response)
-                        });
+                        }.await;
 
                         access.parse_token_response(scope_hash, response?)
                             .map_err(|e| format_err!("failed to acquire token: {}", e))?
