@@ -2,10 +2,7 @@ use std::{fmt, sync::Arc};
 
 use failure::Error;
 use futures::{
-    compat::{
-        Future01CompatExt,
-        Stream01CompatExt,
-    },
+    compat::Stream01CompatExt,
     stream::StreamExt,
 };
 use http;
@@ -45,24 +42,11 @@ impl APIClient {
     where
         T: DeserializeOwned,
     {
-        let (parts, body) = request.into_parts();
-        let uri_str = format!("{}{}", self.configuration.base_path, parts.uri);
-        let res = await!(match parts.method {
-            http::Method::GET => self.configuration.client.get(&uri_str),
-            http::Method::POST => self.configuration.client.post(&uri_str),
-            http::Method::DELETE => self.configuration.client.delete(&uri_str),
-            http::Method::PUT => self.configuration.client.put(&uri_str),
-            other => {
-                return Err(Error::from(format_err!("Invalid method: {}", other)));
-            }
-        }
-        .body(body)
-        .send()
-        .compat())?;
+        let res = await!(self.configuration.client(request))?;
 
         let mut json_body = Vec::with_capacity(res.content_length().unwrap_or(1024) as usize);
 
-        // If an API can't be deserialized from the error response's JSON body, use
+        // If an API error can't be deserialized from the error response's JSON body, use
         // the HTTP error as a fallback
         let fallback_err = res.error_for_status_ref().map(|_| ());
         let mut res_body = res.into_body().compat();
