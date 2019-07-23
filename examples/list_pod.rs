@@ -10,6 +10,6 @@ async fn main() {
     let kubeclient = APIClient::new(kubeconfig);
     let (req, _) = api::Pod::list_namespaced_pod("kube-system", Default::default())
         .expect("failed to create a request");
-    let list_pod = kubeclient.request::<api::PodList>(req).await.expect("failed to list up pods");
+    let list_pod = await!(kubeclient.request::<api::PodList>(req)).expect("failed to list up pods");
     println!("{:?}", list_pod);
 }

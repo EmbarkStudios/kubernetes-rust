@@ -1,10 +1,7 @@
 use std::{fmt, sync::Arc};
 
 use failure::Error;
-use futures::{
-    compat::Stream01CompatExt,
-    stream::StreamExt,
-};
+use futures::{compat::Stream01CompatExt, stream::StreamExt};
 use http;
 use serde::de::DeserializeOwned;
 
@@ -34,7 +31,9 @@ pub struct APIClient {
 
 impl APIClient {
     pub fn new(configuration: Configuration) -> Self {
-        APIClient { configuration: Arc::new(configuration) }
+        APIClient {
+            configuration: Arc::new(configuration),
+        }
     }
 
     /// Returns kubernetes resources binded `Arnavion/k8s-openapi-codegen` APIs.
@@ -42,7 +41,7 @@ impl APIClient {
     where
         T: DeserializeOwned,
     {
-        let res = self.configuration.client(request).await?;
+        let res = await!(self.configuration.client(request))?;
 
         let mut json_body = Vec::with_capacity(res.content_length().unwrap_or(1024) as usize);
 
@@ -51,27 +50,17 @@ impl APIClient {
         let fallback_err = res.error_for_status_ref().map(|_| ());
         let mut res_body = res.into_body().compat();
 
-        while let Some(chunk) = res_body.next().await {
+        while let Some(chunk) = await!(res_body.next()) {
             let chunk = chunk?;
             json_body.extend_from_slice(&chunk[..])
         }
 
         match fallback_err {
-            Ok(_) => {
-                serde_json::from_slice(&json_body).map_err(|e| {
-                    Error::from(e)
-                })
-            }
-            Err(e) => {
-                match serde_json::from_slice::<ApiError>(&json_body) {
-                    Ok(api_err) => {
-                        Err(api_err.into())
-                    }
-                    Err(_) => {
-                        Err(e.into())
-                    }
-                }
-            }
+            Ok(_) => serde_json::from_slice(&json_body).map_err(|e| Error::from(e)),
+            Err(e) => match serde_json::from_slice::<ApiError>(&json_body) {
+                Ok(api_err) => Err(api_err.into()),
+                Err(_) => Err(e.into()),
+            },
         }
     }
 }

@@ -5,8 +5,16 @@ mod utils;
 
 use base64;
 use failure::Error;
-use futures::{compat::{Future01CompatExt, Stream01CompatExt}, stream::StreamExt};
-use reqwest::{header, r#async::{Client, Response}, Certificate, Identity};
+use futures::{
+    compat::{Future01CompatExt, Stream01CompatExt},
+    stream::StreamExt,
+};
+use oauth::gcp::{ServiceAccountInfo, ServiceAccountAccess, TokenOrRequest};
+use reqwest::{
+    header,
+    r#async::{Client, Response},
+    Certificate, Identity,
+};
 use std::sync::Arc;
 
 use self::kube_config::KubeConfigLoader;
@@ -19,7 +27,11 @@ pub struct Configuration {
 }
 
 impl Configuration {
-    pub(crate) fn new(base_path: String, client: Client, auth_provider: Option<AuthProvider>) -> Self {
+    pub(crate) fn new(
+        base_path: String,
+        client: Client,
+        auth_provider: Option<AuthProvider>,
+    ) -> Self {
         Configuration {
             base_path,
             client,
@@ -27,17 +39,18 @@ impl Configuration {
         }
     }
 
-    pub(crate) async fn client(&self, mut request: http::Request<Vec<u8>>) -> Result<Response, Error> {
+    pub(crate) async fn client(
+        &self,
+        mut request: http::Request<Vec<u8>>,
+    ) -> Result<Response, Error> {
         let client = self.client.clone();
 
         if let Some(ref auth_provider) = self.auth_provider {
-            let auth_value = auth_provider.get_auth_header(&client).await?;
+            let auth_value = await!(auth_provider.get_auth_header(&client))?;
 
-            request.headers_mut()
-                .insert(
-                    header::AUTHORIZATION,
-                    auth_value,
-                );
+            request
+                .headers_mut()
+                .insert(header::AUTHORIZATION, auth_value);
         }
 
         let (parts, body) = request.into_parts();
@@ -55,17 +68,17 @@ impl Configuration {
             };
 
             let req = req_builder.headers(parts.headers).body(body);
-                
-            Ok(req.send().compat().await?)
+
+            Ok(await!(req.send().compat())?)
         };
 
-        send.await
+        await!(send)
     }
 }
 
 pub(crate) enum AuthProvider {
     //Basic(header::HeaderValue),
-    Oauth2(Arc<oauth::ServiceAccountAccess>),
+    Oauth2(Arc<ServiceAccountAccess>),
 }
 
 impl AuthProvider {
@@ -76,62 +89,75 @@ impl AuthProvider {
     //     Ok(AuthProvider::Basic(hv))
     // }
 
-    fn with_service_key(key: oauth::ServiceAccountInfo) -> Result<AuthProvider, Error> {
-        let access = oauth::ServiceAccountAccess::new(key)?;
+    fn with_service_key(key: ServiceAccountInfo) -> Result<AuthProvider, Error> {
+        let access = ServiceAccountAccess::new(key)?;
         Ok(AuthProvider::Oauth2(Arc::new(access)))
     }
 
-    async fn get_auth_header<'a>(&'a self, client: &'a Client) -> Result<header::HeaderValue, Error> {
+    async fn get_auth_header<'a>(
+        &'a self,
+        client: &'a Client,
+    ) -> Result<header::HeaderValue, Error> {
         match self {
             //AuthProvider::Basic(hv) => Ok(hv.clone()),
             AuthProvider::Oauth2(access) => {
                 let token = match access
                     .get_token(&["https://www.googleapis.com/auth/cloud-platform"])
-                    .map_err(|e| format_err!("failed to request token: {}", e))? {
-                    oauth::TokenOrRequest::Token(token) => token,
-                    oauth::TokenOrRequest::Request {
+                    .map_err(|e| format_err!("failed to request token: {}", e))?
+                {
+                    TokenOrRequest::Token(token) => token,
+                    TokenOrRequest::Request {
                         request,
                         scope_hash,
                         ..
                     } => {
                         let (parts, body) = request.into_parts();
 
-                        let response: Result<http::Response<_>, Error> = async {
+                        let response: Result<http::Response<_>, Error> = await!(async {
                             let req_builder = match parts.method {
                                 // Should only ever be POST...
                                 http::Method::POST => client.post(&format!("{}", parts.uri)),
-                                method => unreachable!("this...should not have happened: {}", method),
+                                method => {
+                                    unreachable!("this...should not have happened: {}", method)
+                                }
                             };
 
-                            let response = req_builder.headers(parts.headers)
+                            let response = await!(req_builder
+                                .headers(parts.headers)
                                 .body(body)
-                                .send().compat().await?;
+                                .send()
+                                .compat())?;
 
                             // The oauth code only really cares about the status and body
                             // so the rest being empty is fine
                             let status = response.status();
 
-                            let mut json_body = Vec::with_capacity(response.content_length().unwrap_or(1024) as usize);
+                            let mut json_body = Vec::with_capacity(
+                                response.content_length().unwrap_or(1024) as usize,
+                            );
                             let mut res_body = response.into_body().compat();
 
-                            while let Some(chunk) = res_body.next().await {
+                            while let Some(chunk) = await!(res_body.next()) {
                                 let chunk = chunk?;
                                 json_body.extend_from_slice(&chunk[..])
                             }
 
-                            let response = http::Response::builder()
-                                .status(status)
-                                .body(json_body)?;
+                            let response =
+                                http::Response::builder().status(status).body(json_body)?;
 
                             Ok(response)
-                        }.await;
+                        });
 
-                        access.parse_token_response(scope_hash, response?)
+                        access
+                            .parse_token_response(scope_hash, response?)
                             .map_err(|e| format_err!("failed to acquire token: {}", e))?
-                    },
+                    }
                 };
 
-                Ok(header::HeaderValue::from_str(&format!("Bearer {}", token.access_token))?)
+                Ok(header::HeaderValue::from_str(&format!(
+                    "Bearer {}",
+                    token.access_token
+                ))?)
             }
         }
     }
@@ -177,14 +203,14 @@ pub fn load_kube_config() -> Result<Configuration, Error> {
     ) {
         (Ok(_), _) => {
             let path = std::env::var_os("GOOGLE_APPLICATION_CREDENTIALS")
-            .map(std::path::PathBuf::from)
-            .ok_or(format_err!(
-                "Missing GOOGLE_APPLICATION_CREDENTIALS env",
-            ))?;
+                .map(std::path::PathBuf::from)
+                .ok_or(format_err!("Missing GOOGLE_APPLICATION_CREDENTIALS env",))?;
 
             let svc_acct_info = std::fs::read_to_string(path)?;
-            
-            Some(AuthProvider::with_service_key(oauth::ServiceAccountInfo::deserialize(svc_acct_info)?)?)
+
+            Some(AuthProvider::with_service_key(
+                ServiceAccountInfo::deserialize(svc_acct_info)?,
+            )?)
         }
         (_, (Some(u), Some(p))) => {
             let mut headers = header::HeaderMap::new();
@@ -192,10 +218,7 @@ pub fn load_kube_config() -> Result<Configuration, Error> {
             let encoded = base64::encode(&format!("{}:{}", u, p));
             let hv = header::HeaderValue::from_str(&format!("Basic {}", encoded))?;
 
-            headers.insert(
-                header::AUTHORIZATION,
-                hv,
-            );
+            headers.insert(header::AUTHORIZATION, hv);
 
             client_builder = client_builder.default_headers(headers);
 
